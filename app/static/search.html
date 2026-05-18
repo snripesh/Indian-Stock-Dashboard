@@ -105,7 +105,7 @@
       <table>
         <thead>
           <tr>
-            <th>Asset</th><th>Type</th><th>Current Price</th><th>Day Change</th><th title="Live calculation: (Trailing 12-Month Dividends / Current Price) * 100">Ann. Yield ⓘ</th><th>Monthly Eq.</th><th>Div. Freq.</th><th>TTM Income</th><th title="P/E is 'Not Meaningful' for InvITs and REITs because they distribute cash flow (NDCF) rather than retain earnings.">P/E ⓘ</th><th>Last Dividend</th><th>Last Dividend Date</th><th>Confidence</th><th>Buy Zone</th><th>Source</th><th>Action</th>
+            <th>Asset</th><th>Type</th><th>Current Price</th><th>Buy Zone</th><th>Day Change</th><th title="Live calculation: (Trailing 12-Month Dividends / Current Price) * 100">Ann. Yield ⓘ</th><th>Monthly Eq.</th><th>Div. Freq.</th><th>TTM Income</th><th title="P/E is 'Not Meaningful' for InvITs and REITs because they distribute cash flow (NDCF) rather than retain earnings.">P/E ⓘ</th><th>Last Dividend</th><th>Last Dividend Date</th><th>Confidence</th><th>Source</th><th>Action</th>
           </tr>
         </thead>
         <tbody id="assetRows">
@@ -144,6 +144,7 @@
         <td class="asset">${a.asset}<div class="muted">${a.symbol} · ${a.ticker}</div></td>
         <td>${a.type}</td>
         <td><strong>${fmtINR(a.current_price)}</strong></td>
+        <td class="${a.is_in_buy_zone ? 'yield-hot' : ''}">${a.buy_zone} ${a.is_in_buy_zone ? '🎯' : ''}</td>
         <td>${change}</td>
         <td class="${yieldClass(a.annual_yield_pct)}">${fmtPct(a.annual_yield_pct)}</td>
         <td>${fmtPct(a.monthly_yield_pct)}</td>
@@ -153,7 +154,6 @@
         <td>${fmtINR(a.last_dividend_amount)}</td>
         <td>${a.last_dividend_date || 'N/A'}</td>
         <td><span class="pill ${confClass(a.confidence)}">${a.confidence}</span></td>
-        <td class="${a.is_in_buy_zone ? 'yield-hot' : ''}">${a.buy_zone} ${a.is_in_buy_zone ? '🎯' : ''}</td>
         <td class="muted">${a.data_source}</td>
         <td><button onclick="addAsset(${i})" style="padding:6px 10px; font-size:13px; border-radius:8px;">➕ Add</button></td>
       </tr>`;

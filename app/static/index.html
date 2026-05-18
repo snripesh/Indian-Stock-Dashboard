@@ -121,7 +121,7 @@
       <table>
         <thead>
           <tr>
-            <th>#</th><th>Asset</th><th>Type</th><th>Current Price</th><th>Day Change</th><th title="Live calculation: (Trailing 12-Month Dividends / Current Price) * 100">Ann. Yield ⓘ</th><th>Est. Income<br><small class="muted" id="invAmtLabel"></small></th><th>Monthly Eq.</th><th>Div. Freq.</th><th>TTM Income</th><th title="P/E is 'Not Meaningful' for InvITs and REITs because they distribute cash flow (NDCF) rather than retain earnings.">P/E ⓘ</th><th>Last Dividend</th><th>Last Dividend Date</th><th>Confidence</th><th>Buy Zone</th><th>Source</th><th>Risk</th><th>Action</th>
+            <th>#</th><th>Asset</th><th>Type</th><th>Current Price</th><th>Buy Zone</th><th>Day Change</th><th title="Live calculation: (Trailing 12-Month Dividends / Current Price) * 100">Ann. Yield ⓘ</th><th>Est. Income<br><small class="muted" id="invAmtLabel"></small></th><th>Monthly Eq.</th><th>Div. Freq.</th><th>TTM Income</th><th title="P/E is 'Not Meaningful' for InvITs and REITs because they distribute cash flow (NDCF) rather than retain earnings.">P/E ⓘ</th><th>Last Dividend</th><th>Last Dividend Date</th><th>Confidence</th><th>Source</th><th>Risk</th><th>Action</th>
           </tr>
         </thead>
         <tbody id="assetRows"></tbody>
@@ -170,6 +170,7 @@
           <td class="asset">${a.asset}<div class="muted">${a.symbol} · ${a.ticker}</div></td>
           <td>${a.type}</td>
           <td><strong>${fmtINR(a.current_price)}</strong></td>
+          <td class="${a.is_in_buy_zone ? 'yield-hot' : ''}">${a.buy_zone} ${a.is_in_buy_zone ? '🎯' : ''}</td>
           <td>${change}</td>
           <td class="${yieldClass(a.annual_yield_pct)}">${fmtPct(a.annual_yield_pct)}</td>
           <td class="pos">${fmtINR(estIncome)}</td>
@@ -180,7 +181,6 @@
           <td>${fmtINR(a.last_dividend_amount)}</td>
           <td>${a.last_dividend_date || 'N/A'}</td>
           <td><span class="pill ${confClass(a.confidence)}">${a.confidence}</span></td>
-          <td class="${a.is_in_buy_zone ? 'yield-hot' : ''}">${a.buy_zone} ${a.is_in_buy_zone ? '🎯' : ''}</td>
           <td class="muted">${a.data_source}</td>
           <td class="muted">${a.risk}</td>
           <td><button onclick="removeAsset('${a.ticker}')" style="background:transparent; border:none; color:var(--error); padding:4px 8px; font-size:16px;" title="Remove from Dashboard">🗑️</button></td>

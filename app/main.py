@@ -245,17 +245,22 @@ def enrich_asset(asset: Dict[str, Any], live: bool = True, force: bool = False) 
                 out["is_in_buy_zone"] = True
     else:
         # Predict buy zone for unresearched/searched assets
-        if out.get("fiftyTwoWeekLow") and out.get("fiftyTwoWeekHigh") and ttm_income > 0:
+        if out.get("fiftyTwoWeekLow") and out.get("fiftyTwoWeekHigh"):
             low = out["fiftyTwoWeekLow"]
             high = out["fiftyTwoWeekHigh"]
-            tech_target = low + (high - low) * 0.25
             
-            asset_type = str(out.get("type", "")).lower()
-            target_yield = 0.095 if asset_type in ["invit", "reit"] else 0.05
-            yield_target = ttm_income / target_yield
-            
-            buy_zone_max = (tech_target + yield_target) / 2
-            out["buy_zone"] = f"Predicted: Under ₹{round(buy_zone_max, 1)}"
+            if ttm_income > 0:
+                tech_target = low + (high - low) * 0.25
+                asset_type = str(out.get("type", "")).lower()
+                target_yield = 0.095 if asset_type in ["invit", "reit"] else 0.05
+                yield_target = ttm_income / target_yield
+                buy_zone_max = (tech_target + yield_target) / 2
+                out["buy_zone"] = f"Predicted: Under ₹{round(buy_zone_max, 1)}"
+            else:
+                # Fallback to technical-only buy zone
+                buy_zone_max = low + (high - low) * 0.30
+                out["buy_zone"] = f"Technical: Under ₹{round(buy_zone_max, 1)}"
+                
             if price and price <= buy_zone_max:
                 out["is_in_buy_zone"] = True
         else:
