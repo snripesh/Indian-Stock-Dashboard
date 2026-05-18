@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Search Stocks - Indian Income Assets Dashboard</title>
+  <style>
+    :root {
+      --bg: #080b12;
+      --panel: #111827;
+      --panel2: #0f172a;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --line: #243044;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+      --accent: #8b5cf6;
+      --blue: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top left, #1e1b4b, transparent 28%), var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    
+    /* Navigation */
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 28px;
+      background: rgba(17, 24, 39, 0.7);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+    .nav-brand { font-weight: 800; font-size: 18px; color: #fff; text-decoration: none; display: flex; align-items: center; gap: 8px;}
+    .nav-links { display: flex; gap: 16px; align-items: center; }
+    .nav-link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; padding: 6px 12px; border-radius: 8px; transition: all 0.2s; }
+    .nav-link:hover { color: #fff; background: rgba(255,255,255,0.05); }
+    .nav-link.active { color: var(--blue); background: rgba(56, 189, 248, 0.1); }
+    .logout-btn { background: transparent; color: var(--error, #ef4444); border: 1px solid rgba(239,68,68,0.3); padding: 6px 12px; font-size: 14px; font-weight: 600; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .logout-btn:hover { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.5); }
+
+    header { padding: 28px 28px 12px; }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 40px); letter-spacing: -0.04em; }
+    .sub { color: var(--muted); max-width: 980px; line-height: 1.5; }
+    
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px 28px; align-items: center; }
+    input, button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; outline: none; font-size: 15px;}
+    button { cursor: pointer; background: linear-gradient(135deg, var(--blue), #0284c7); border: 0; font-weight: 700; color: white; transition: opacity 0.2s; }
+    button:hover { opacity: 0.9; }
+
+    main { padding: 0 28px 32px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 18px; background: rgba(15,23,42,.78); box-shadow: 0 24px 50px rgba(0,0,0,.22); }
+    table { width: 100%; border-collapse: collapse; min-width: 1500px; }
+    th, td { padding: 16px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 2; background: #111827; color: #cbd5e1; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    td { font-size: 14px; }
+    tr:hover td { background: rgba(139,92,246,.08); }
+    .asset { white-space: normal; min-width: 240px; font-weight: 750; }
+    .muted { color: var(--muted); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 9px; font-weight: 700; font-size: 12px; border: 1px solid var(--line); }
+    .high { color: #86efac; background: rgba(34,197,94,.1); }
+    .medhigh { color: #bae6fd; background: rgba(56,189,248,.1); }
+    .med { color: #fde68a; background: rgba(245,158,11,.1); }
+    .lowmed { color: #fecaca; background: rgba(239,68,68,.09); }
+    .pos { color: var(--good); font-weight: 800; }
+    .neg { color: var(--bad); font-weight: 800; }
+    .yield-hot { color: #86efac; font-weight: 900; }
+    .yield-warm { color: #fde68a; font-weight: 800; }
+    .footer { color: var(--muted); padding: 20px 28px 34px; font-size: 13px; line-height: 1.5; }
+    
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-state span { font-size: 40px; display: block; margin-bottom: 16px; }
+    
+    @media (max-width: 560px) { header, .toolbar, main, .footer, .navbar { padding-left: 16px; padding-right: 16px; } }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar">
+    <a href="/" class="nav-brand">📈 Income Dashboard</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Dashboard</a>
+      <a href="/search" class="nav-link active">Search Stocks</a>
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </div>
+  </nav>
+
+  <header>
+    <h1>Search Stocks</h1>
+    <div class="sub">Look up any NSE stock to analyze its trailing 12-month dividend yield and performance. Results are calculated dynamically using live quote data.</div>
+  </header>
+
+  <section class="toolbar">
+    <input id="searchInput" type="text" placeholder="Enter Company Name or Ticker (e.g. Reliance, ITC)" style="width: 100%; max-width: 400px;" autocomplete="off" />
+    <button id="searchBtn">Analyze Stock</button>
+  </section>
+
+  <main>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Asset</th><th>Type</th><th>Current Price</th><th>Day Change</th><th title="Live calculation: (Trailing 12-Month Dividends / Current Price) * 100">Ann. Yield ⓘ</th><th>Monthly Eq.</th><th>Div. Freq.</th><th>TTM Income</th><th title="P/E is 'Not Meaningful' for InvITs and REITs because they distribute cash flow (NDCF) rather than retain earnings.">P/E ⓘ</th><th>Last Dividend</th><th>Last Dividend Date</th><th>Confidence</th><th>Buy Zone</th><th>Source</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="assetRows">
+          <tr>
+            <td colspan="15">
+              <div class="empty-state">
+                <span>🔍</span>
+                Search for a stock ticker to view its metrics here.
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <div class="footer">Warning: free quote data is delayed/free-source data and may fail for some trusts. This dashboard is research tooling, not financial advice.</div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fmtINR = (n) => n === null || n === undefined || isNaN(n) ? 'N/A' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
+    const fmtPct = (n) => n === null || n === undefined || isNaN(n) ? 'N/A' : `${Number(n).toFixed(2)}%`;
+    function confClass(c) {
+      if (c === 'High') return 'high';
+      if (c === 'Medium-High') return 'medhigh';
+      if (c === 'Medium') return 'med';
+      return 'lowmed';
+    }
+    function yieldClass(y) { return y >= 12 ? 'yield-hot' : y >= 7 ? 'yield-warm' : ''; }
+    
+    let searchedAssets = [];
+
+    const renderRow = (a, i) => {
+      const change = a.day_change_pct === null || a.day_change_pct === undefined ? '<span class="muted">N/A</span>' : `<span class="${a.day_change_pct >= 0 ? 'pos' : 'neg'}">${fmtINR(a.day_change)} (${fmtPct(a.day_change_pct)})</span>`;
+      return `<tr>
+        <td class="asset">${a.asset}<div class="muted">${a.symbol} · ${a.ticker}</div></td>
+        <td>${a.type}</td>
+        <td><strong>${fmtINR(a.current_price)}</strong></td>
+        <td>${change}</td>
+        <td class="${yieldClass(a.annual_yield_pct)}">${fmtPct(a.annual_yield_pct)}</td>
+        <td>${fmtPct(a.monthly_yield_pct)}</td>
+        <td>${a.dividend_count ? a.dividend_count + 'x/yr' : 'N/A'}</td>
+        <td>${fmtINR(a.ttm_income)}</td>
+        <td>${a.pe_ratio ?? 'N/A'}</td>
+        <td>${fmtINR(a.last_dividend_amount)}</td>
+        <td>${a.last_dividend_date || 'N/A'}</td>
+        <td><span class="pill ${confClass(a.confidence)}">${a.confidence}</span></td>
+        <td class="${a.is_in_buy_zone ? 'yield-hot' : ''}">${a.buy_zone} ${a.is_in_buy_zone ? '🎯' : ''}</td>
+        <td class="muted">${a.data_source}</td>
+        <td><button onclick="addAsset(${i})" style="padding:6px 10px; font-size:13px; border-radius:8px;">➕ Add</button></td>
+      </tr>`;
+    };
+
+    function renderTable() {
+      if (searchedAssets.length === 0) {
+        $('assetRows').innerHTML = `<tr><td colspan="15"><div class="empty-state"><span>🔍</span>Search for a stock ticker to view its metrics here.</div></td></tr>`;
+      } else {
+        $('assetRows').innerHTML = searchedAssets.map((a, i) => renderRow(a, i)).join('');
+      }
+    }
+
+    async function addAsset(index) {
+      const asset = searchedAssets[index];
+      try {
+        const res = await fetch('/api/assets/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(`${asset.asset} added to your dashboard!`);
+        } else {
+          alert(`Failed: ${data.error || 'Unknown error'}`);
+        }
+      } catch (e) {
+        alert('Error adding asset: ' + e.message);
+      }
+    }
+
+    async function handleSearch() {
+      const ticker = $('searchInput').value.trim();
+      if(!ticker) return;
+      
+      const prevText = $('searchBtn').textContent;
+      $('searchBtn').textContent = 'Searching...';
+      $('searchBtn').disabled = true;
+      
+      try {
+        const res = await fetch(`/api/search?ticker=${encodeURIComponent(ticker)}`);
+        
+        if (res.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        
+        if(!res.ok) {
+          alert((await res.json()).error || "Search failed");
+          return;
+        }
+        const data = await res.json();
+        
+        // Add to top of list
+        searchedAssets.unshift(data.asset);
+        renderTable();
+      } catch(e) {
+        alert("Search failed: " + e.message);
+      } finally {
+        $('searchBtn').textContent = prevText;
+        $('searchBtn').disabled = false;
+        $('searchInput').value = '';
+      }
+    }
+
+    $('searchBtn').addEventListener('click', handleSearch);
+    $('searchInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') handleSearch(); });
+    
+    // Logout logic
+    $('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
+  </script>
+</body>
+</html>

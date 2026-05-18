@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Indian Income Assets Dashboard</title>
+  <style>
+    :root {
+      --bg: #080b12;
+      --panel: #111827;
+      --panel2: #0f172a;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --line: #243044;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+      --accent: #8b5cf6;
+      --blue: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top left, #1e1b4b, transparent 28%), var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .navbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 28px; background: rgba(17, 24, 39, 0.7); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }
+    .nav-brand { font-weight: 800; font-size: 18px; color: #fff; text-decoration: none; display: flex; align-items: center; gap: 8px;}
+    .nav-links { display: flex; gap: 16px; align-items: center; }
+    .nav-link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; padding: 6px 12px; border-radius: 8px; transition: all 0.2s; }
+    .nav-link:hover { color: #fff; background: rgba(255,255,255,0.05); }
+    .nav-link.active { color: var(--blue); background: rgba(56, 189, 248, 0.1); }
+    .logout-btn { background: transparent; color: var(--error, #ef4444); border: 1px solid rgba(239,68,68,0.3); padding: 6px 12px; font-size: 14px; font-weight: 600; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .logout-btn:hover { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.5); }
+    header { padding: 28px 28px 12px; }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 40px); letter-spacing: -0.04em; }
+    .sub { color: var(--muted); max-width: 980px; line-height: 1.5; }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 14px; padding: 12px 28px; }
+    .card { background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 18px 40px rgba(0,0,0,.24); }
+    .card .label { color: var(--muted); font-size: 13px; }
+    .card .value { font-size: 26px; font-weight: 800; margin-top: 6px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px 28px; align-items: end; }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+    select, input, button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; outline: none; }
+    button { cursor: pointer; background: linear-gradient(135deg, var(--accent), #2563eb); border: 0; font-weight: 700; }
+    .notice { margin: 0 28px 12px; padding: 12px 14px; border: 1px solid rgba(245,158,11,.35); background: rgba(245,158,11,.08); color: #fde68a; border-radius: 14px; }
+    main { padding: 0 28px 32px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 18px; background: rgba(15,23,42,.78); box-shadow: 0 24px 50px rgba(0,0,0,.22); }
+    table { width: 100%; border-collapse: collapse; min-width: 1500px; }
+    th, td { padding: 12px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 2; background: #111827; color: #cbd5e1; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    td { font-size: 14px; }
+    tr:hover td { background: rgba(139,92,246,.08); }
+    .asset { white-space: normal; min-width: 240px; font-weight: 750; }
+    .muted { color: var(--muted); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 9px; font-weight: 700; font-size: 12px; border: 1px solid var(--line); }
+    .high { color: #86efac; background: rgba(34,197,94,.1); }
+    .medhigh { color: #bae6fd; background: rgba(56,189,248,.1); }
+    .med { color: #fde68a; background: rgba(245,158,11,.1); }
+    .lowmed { color: #fecaca; background: rgba(239,68,68,.09); }
+    .pos { color: var(--good); font-weight: 800; }
+    .neg { color: var(--bad); font-weight: 800; }
+    .yield-hot { color: #86efac; font-weight: 900; }
+    .yield-warm { color: #fde68a; font-weight: 800; }
+    .footer { color: var(--muted); padding: 20px 28px 34px; font-size: 13px; line-height: 1.5; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } header, .cards, .toolbar, main, .footer, .navbar { padding-left: 16px; padding-right: 16px; } .notice { margin-left: 16px; margin-right: 16px; } }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-brand">📈 Income Dashboard</a>
+    <div class="nav-links">
+      <a href="/" class="nav-link active">Dashboard</a>
+      <a href="/search" class="nav-link">Search Stocks</a>
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </div>
+  </nav>
+
+  <header>
+    <h1>Indian Income Assets Dashboard</h1>
+    <div class="sub">Auto-refreshing MVP for high-yield Indian stocks, InvITs, and REITs. The dashboard recalculates annual yield from the latest available price and the stored trailing 12-month dividend/distribution value.</div>
+  </header>
+
+  <section class="cards">
+    <div class="card"><div class="label">Assets shown</div><div id="assetCount" class="value">-</div></div>
+    <div class="card"><div class="label">Average annual yield</div><div id="avgYield" class="value">-</div></div>
+    <div class="card"><div class="label">12%+ yield assets</div><div id="twelveCount" class="value">-</div></div>
+    <div class="card"><div class="label">Last refresh</div><div id="lastRefresh" class="value" style="font-size:18px">-</div></div>
+  </section>
+
+  <section class="toolbar">
+    <label>Type
+      <select id="typeFilter">
+        <option value="all">All</option><option value="Equity">Equity</option><option value="InvIT">InvIT</option><option value="REIT">REIT</option>
+      </select>
+    </label>
+    <label>Confidence
+      <select id="confidenceFilter">
+        <option value="all">All</option><option value="High">High</option><option value="Medium-High">Medium-High</option><option value="Medium">Medium</option><option value="Low-Medium">Low-Medium</option>
+      </select>
+    </label>
+    <label>Minimum annual yield %
+      <input id="minYield" type="number" value="0" step="0.5" min="0" />
+    </label>
+    <label>Sort by
+      <select id="sortBy">
+        <option value="yield">Annual Yield</option><option value="confidence">Confidence</option><option value="change">Day Change</option><option value="price">Price</option><option value="asset">Asset Name</option>
+      </select>
+    </label>
+    <label>Investment Amount ₹
+      <input id="investmentAmount" type="number" value="100000" step="1000" min="1" />
+    </label>
+    <button id="refreshBtn">Refresh now</button>
+    <!-- Search moved to dedicated page -->
+  </section>
+
+  <main>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Asset</th><th>Type</th><th>Current Price</th><th>Day Change</th><th title="Live calculation: (Trailing 12-Month Dividends / Current Price) * 100">Ann. Yield ⓘ</th><th>Est. Income<br><small class="muted" id="invAmtLabel"></small></th><th>Monthly Eq.</th><th>Div. Freq.</th><th>TTM Income</th><th title="P/E is 'Not Meaningful' for InvITs and REITs because they distribute cash flow (NDCF) rather than retain earnings.">P/E ⓘ</th><th>Last Dividend</th><th>Last Dividend Date</th><th>Confidence</th><th>Buy Zone</th><th>Source</th><th>Risk</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="assetRows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <div class="footer">Warning: free quote data is delayed/free-source data and may fail for some trusts. For production, replace the quote function with Zerodha Kite Connect, TrueData, Global Datafeeds, or another licensed NSE/BSE feed. This dashboard is research tooling, not financial advice.</div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fmtINR = (n) => n === null || n === undefined || isNaN(n) ? 'N/A' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
+    const fmtPct = (n) => n === null || n === undefined || isNaN(n) ? 'N/A' : `${Number(n).toFixed(2)}%`;
+    function confClass(c) {
+      if (c === 'High') return 'high';
+      if (c === 'Medium-High') return 'medhigh';
+      if (c === 'Medium') return 'med';
+      return 'lowmed';
+    }
+    function yieldClass(y) { return y >= 12 ? 'yield-hot' : y >= 7 ? 'yield-warm' : ''; }
+    let searchedAssets = [];
+    async function loadAssets(force = false) {
+      const params = new URLSearchParams({
+        type_filter: $('typeFilter').value,
+        confidence: $('confidenceFilter').value,
+        min_yield: $('minYield').value || '0',
+        sort_by: $('sortBy').value,
+        live: 'true',
+        force: force ? 'true' : 'false'
+      });
+      const invAmt = parseFloat($('investmentAmount').value) || 100000;
+      $('invAmtLabel').textContent = '(on ' + new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(invAmt) + ')';
+
+      const res = await fetch(`/api/assets?${params}`);
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await res.json();
+      
+      const renderRow = (a, i) => {
+        const change = a.day_change_pct === null || a.day_change_pct === undefined ? '<span class="muted">N/A</span>' : `<span class="${a.day_change_pct >= 0 ? 'pos' : 'neg'}">${fmtINR(a.day_change)} (${fmtPct(a.day_change_pct)})</span>`;
+        const estIncome = invAmt * (a.annual_yield_pct / 100);
+        return `<tr>
+          <td>${i + 1}</td>
+          <td class="asset">${a.asset}<div class="muted">${a.symbol} · ${a.ticker}</div></td>
+          <td>${a.type}</td>
+          <td><strong>${fmtINR(a.current_price)}</strong></td>
+          <td>${change}</td>
+          <td class="${yieldClass(a.annual_yield_pct)}">${fmtPct(a.annual_yield_pct)}</td>
+          <td class="pos">${fmtINR(estIncome)}</td>
+          <td>${fmtPct(a.monthly_yield_pct)}</td>
+          <td>${a.dividend_count ? a.dividend_count + 'x/yr' : 'N/A'}</td>
+          <td>${fmtINR(a.ttm_income)}</td>
+          <td>${a.pe_ratio ?? 'N/A'}</td>
+          <td>${fmtINR(a.last_dividend_amount)}</td>
+          <td>${a.last_dividend_date || 'N/A'}</td>
+          <td><span class="pill ${confClass(a.confidence)}">${a.confidence}</span></td>
+          <td class="${a.is_in_buy_zone ? 'yield-hot' : ''}">${a.buy_zone} ${a.is_in_buy_zone ? '🎯' : ''}</td>
+          <td class="muted">${a.data_source}</td>
+          <td class="muted">${a.risk}</td>
+          <td><button onclick="removeAsset('${a.ticker}')" style="background:transparent; border:none; color:var(--error); padding:4px 8px; font-size:16px;" title="Remove from Dashboard">🗑️</button></td>
+        </tr>`;
+      };
+
+      const loadedRowsHtml = data.assets.map((a, i) => renderRow(a, i)).join('');
+      
+      $('assetRows').innerHTML = loadedRowsHtml || '<tr><td colspan="17">No assets match the filters.</td></tr>';
+      $('assetCount').textContent = data.count;
+      const allAssets = data.assets;
+      const avg = allAssets.reduce((s, a) => s + a.annual_yield_pct, 0) / (allAssets.length || 1);
+      $('avgYield').textContent = fmtPct(avg);
+      $('twelveCount').textContent = allAssets.filter(a => a.annual_yield_pct >= 12).length;
+      $('lastRefresh').textContent = new Date().toLocaleTimeString();
+    }
+
+    ['typeFilter','confidenceFilter','sortBy','investmentAmount'].forEach(id => $(id).addEventListener('change', () => loadAssets(false)));
+    $('minYield').addEventListener('input', () => loadAssets(false));
+    $('refreshBtn').addEventListener('click', () => loadAssets(true));
+    
+    async function removeAsset(ticker) {
+      if(!confirm(`Remove ${ticker} from your dashboard?`)) return;
+      try {
+        const res = await fetch(`/api/assets/remove/${encodeURIComponent(ticker)}`, { method: 'DELETE' });
+        if(res.ok) {
+          loadAssets(false);
+        } else {
+          const data = await res.json();
+          alert('Failed to remove asset: ' + (data.error || 'Unknown error'));
+        }
+      } catch(e) {
+        alert('Error removing asset: ' + e.message);
+      }
+    }
+    
+    // Logout logic
+    $('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login';
+    });
+
+    loadAssets(false);
+    setInterval(() => loadAssets(false), 60000);
+  </script>
+</body>
+</html>
