@@ -1,6 +1,6 @@
 # Indian Income Assets Live Dashboard MVP
 
-A runnable MVP dashboard for the 20 Indian income assets from the report. It shows current/delayed price, day change, recalculated annual yield, monthly equivalent yield, P/E ratio, last dividend/distribution amount, last dividend date, confidence, buy zone, and portfolio income estimates.
+A runnable MVP dashboard for the 20 Indian income assets. It shows current/delayed price, day change, recalculated annual yield, monthly equivalent yield, P/E ratio, last dividend/distribution amount, last dividend date, confidence, buy zone, and portfolio income estimates.
 
 ## What this MVP does
 
