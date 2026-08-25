@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .env
+
+# Runtime secrets and per-user data — never commit real credentials or user data.
+app/data/users.json
+app/data/user_assets.json
+app/data/secret.key
