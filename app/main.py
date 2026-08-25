@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import math
+import re
+import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "assets.json"
 USERS_PATH = BASE_DIR / "data" / "users.json"
 USER_ASSETS_PATH = BASE_DIR / "data" / "user_assets.json"
+SECRET_KEY_PATH = BASE_DIR / "data" / "secret.key"
 
 app = FastAPI(title="Indian Income Assets Dashboard", version="1.0.0")
 app.add_middleware(
@@ -29,6 +34,8 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 CACHE: Dict[str, Dict[str, Any]] = {}
 CACHE_TTL_SECONDS = 55
+
+CONFIDENCE_ORDER = {"High": 4, "Medium-High": 3, "Medium": 2, "Low-Medium": 1}
 
 NSE_SESSION = requests.Session()
 NSE_SESSION.headers.update({
@@ -233,16 +240,19 @@ def enrich_asset(asset: Dict[str, Any], live: bool = True, force: bool = False) 
     # Revert to the accurate researched Buy Zone from the report, OR calculate dynamic if missing
     buy_zone_str = str(asset.get("buy_zone", ""))
     out["is_in_buy_zone"] = False
-    
-    if buy_zone_str:
+
+    # Only treat it as a "researched" zone if it actually matches a Low-High range.
+    # Predicted/Technical placeholders (e.g. "Predicted: Under ₹123.4") saved on a
+    # previously-added asset must NOT be reused as-is, otherwise the zone freezes
+    # forever instead of being recalculated from the latest 52-week range.
+    range_match = re.search(r'(?:Rs\.?|₹)?\s*([\d\.]+)\s*-\s*([\d\.]+)', buy_zone_str) if buy_zone_str else None
+
+    if range_match:
         out["buy_zone"] = buy_zone_str
-        import re
-        match = re.search(r'(?:Rs\.?|₹)?\s*([\d\.]+)\s*-\s*([\d\.]+)', buy_zone_str)
-        if match and price:
-            low = float(match.group(1))
-            high = float(match.group(2))
-            if price <= high:
-                out["is_in_buy_zone"] = True
+        low = float(range_match.group(1))
+        high = float(range_match.group(2))
+        if price and low <= price <= high:
+            out["is_in_buy_zone"] = True
     else:
         # Predict buy zone for unresearched/searched assets
         if out.get("fiftyTwoWeekLow") and out.get("fiftyTwoWeekHigh"):
@@ -297,8 +307,46 @@ def save_user_assets(data: Dict[str, List[Dict[str, Any]]]):
     with USER_ASSETS_PATH.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
+
+def get_secret_key() -> bytes:
+    if SECRET_KEY_PATH.exists():
+        return SECRET_KEY_PATH.read_bytes()
+    key = secrets.token_bytes(32)
+    SECRET_KEY_PATH.write_bytes(key)
+    return key
+
+SECRET_KEY = get_secret_key()
+
+def hash_password(password: str, salt: Optional[str] = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200_000)
+    return f"{salt}${digest.hex()}"
+
+def verify_password(password: str, stored: str) -> bool:
+    if "$" not in stored:
+        # Legacy plaintext entry from before hashing was added.
+        return hmac.compare_digest(password, stored)
+    salt, _, _ = stored.partition("$")
+    return hmac.compare_digest(hash_password(password, salt), stored)
+
+def create_session_token(username: str) -> str:
+    sig = hmac.new(SECRET_KEY, username.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{username}.{sig}"
+
+def verify_session_token(token: str) -> Optional[str]:
+    if not token or "." not in token:
+        return None
+    username, _, sig = token.rpartition(".")
+    expected = hmac.new(SECRET_KEY, username.encode("utf-8"), hashlib.sha256).hexdigest()
+    if username and hmac.compare_digest(sig, expected):
+        return username
+    return None
+
 def get_current_user(request: Request) -> Optional[str]:
-    return request.cookies.get("auth_token")
+    token = request.cookies.get("auth_token")
+    if not token:
+        return None
+    return verify_session_token(token)
 
 @app.get("/login")
 def login_page(request: Request):
@@ -315,11 +363,16 @@ def register_page(request: Request):
 @app.post("/api/login")
 def api_login(credentials: LoginRequest, response: Response):
     users = load_users()
-    if users.get(credentials.username) == credentials.password:
+    stored = users.get(credentials.username)
+    if stored and verify_password(credentials.password, stored):
+        if "$" not in stored:
+            # Upgrade legacy plaintext entries to a hashed password on next login.
+            users[credentials.username] = hash_password(credentials.password)
+            save_users(users)
         response = JSONResponse({"success": True})
         response.set_cookie(
             key="auth_token",
-            value=credentials.username,
+            value=create_session_token(credentials.username),
             httponly=True,
             samesite="lax",
             max_age=86400 * 30 # 30 days
@@ -336,8 +389,8 @@ def api_register(credentials: LoginRequest):
         return JSONResponse({"success": False, "error": "Password too short (min 4 characters)"}, status_code=400)
     if not credentials.username.isalnum():
         return JSONResponse({"success": False, "error": "Username must be alphanumeric"}, status_code=400)
-    
-    users[credentials.username] = credentials.password
+
+    users[credentials.username] = hash_password(credentials.password)
     save_users(users)
     
     # Pre-copy default dashboard for new user
@@ -394,7 +447,6 @@ def get_assets(
     if min_yield:
         assets = [a for a in assets if a.get("annual_yield_pct", 0) >= min_yield]
 
-    confidence_order = {"High": 4, "Medium-High": 3, "Medium": 2, "Low-Medium": 1}
     if sort_by == "yield":
         assets.sort(key=lambda x: x.get("annual_yield_pct", 0), reverse=True)
     elif sort_by == "price":
@@ -404,12 +456,62 @@ def get_assets(
     elif sort_by == "asset":
         assets.sort(key=lambda x: x.get("asset", ""))
     else:
-        assets.sort(key=lambda x: (confidence_order.get(x.get("confidence"), 0), x.get("annual_yield_pct", 0)), reverse=True)
+        assets.sort(key=lambda x: (CONFIDENCE_ORDER.get(x.get("confidence"), 0), x.get("annual_yield_pct", 0)), reverse=True)
 
     return JSONResponse({
         "as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "count": len(assets),
         "assets": assets,
+        "disclaimer": "Free quote data may be delayed or unavailable. Use a licensed data feed for production trading decisions. This is not financial advice.",
+    })
+
+@app.get("/api/portfolio")
+def get_portfolio(
+    request: Request,
+    amount: float = Query(100000, description="Total investment amount, allocated equally across qualifying assets."),
+    min_confidence: str = Query("all"),
+    type_filter: str = Query("all", description="all, equity, invit, reit"),
+    live: bool = Query(True, description="Try to refresh prices from free/delayed quote source."),
+):
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_assets_db = load_user_assets()
+    raw_assets = user_assets_db.get(user) or load_assets()
+    assets = [enrich_asset(a, live=live) for a in raw_assets]
+
+    if type_filter.lower() != "all":
+        assets = [a for a in assets if str(a.get("type", "")).lower() == type_filter.lower()]
+    if min_confidence.lower() != "all":
+        threshold = CONFIDENCE_ORDER.get(min_confidence, 0)
+        assets = [a for a in assets if CONFIDENCE_ORDER.get(a.get("confidence"), 0) >= threshold]
+
+    n = len(assets)
+    per_asset_amount = (amount / n) if n else 0
+    total_annual_income = 0.0
+    holdings = []
+    for a in assets:
+        est_annual = per_asset_amount * (a.get("annual_yield_pct", 0) / 100)
+        total_annual_income += est_annual
+        holdings.append({
+            "asset": a.get("asset"),
+            "ticker": a.get("ticker"),
+            "type": a.get("type"),
+            "confidence": a.get("confidence"),
+            "annual_yield_pct": a.get("annual_yield_pct"),
+            "allocated_amount": round(per_asset_amount, 2),
+            "estimated_annual_income": round(est_annual, 2),
+        })
+
+    return JSONResponse({
+        "as_of_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "total_investment": amount,
+        "asset_count": n,
+        "estimated_annual_income": round(total_annual_income, 2),
+        "estimated_monthly_income": round(total_annual_income / 12, 2),
+        "blended_annual_yield_pct": round((total_annual_income / amount * 100), 2) if amount else 0,
+        "holdings": holdings,
         "disclaimer": "Free quote data may be delayed or unavailable. Use a licensed data feed for production trading decisions. This is not financial advice.",
     })
 
@@ -500,5 +602,3 @@ def search_asset(request: Request, ticker: str = Query(..., description="NSE Tic
             enriched["asset"] = cached["data"]["companyName"]
             
     return JSONResponse({"asset": enriched})
-
-
