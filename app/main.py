@@ -59,7 +59,8 @@ def safe_float(value: Any) -> Optional[float]:
 
 
 def fetch_quote(ticker: str, force: bool = False) -> Optional[Dict[str, Any]]:
-    """Fetch from NSE API first (very accurate for Indian trusts), then fallback to Yahoo."""
+    """Fetch from Yahoo Finance first (reliable from server/cloud IPs), then try NSE
+    as a bonus source for richer fields (PE, 52-week band) when it isn't blocked."""
     if not ticker:
         return None
     now = time.time()
@@ -67,12 +68,49 @@ def fetch_quote(ticker: str, force: bool = False) -> Optional[Dict[str, Any]]:
     if not force and cached and now - cached["cached_at"] < CACHE_TTL_SECONDS:
         return cached["data"]
 
-    # 1. Try NSE API
-    symbol = ticker.split('.')[0] # Remove .NS
+    # 1. Try Yahoo Finance v8. NSE's own API returns a hard 403 (Akamai "Access Denied")
+    # from most cloud/datacenter IPs, which is exactly where this app tends to be hosted,
+    # so Yahoo is the source that actually works in practice and is tried first.
+    url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
+    try:
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=6)
+        response.raise_for_status()
+        result = response.json().get("chart", {}).get("result", [])
+        if result:
+            meta = result[0].get("meta", {})
+            price = meta.get("regularMarketPrice")
+            if price is not None:
+                prev_close = meta.get("chartPreviousClose")
+                change = None
+                change_pct = None
+                if prev_close is not None:
+                    change = price - prev_close
+                    if prev_close != 0:
+                        change_pct = (change / prev_close) * 100
+
+                data = {
+                    "price": round(float(price), 2),
+                    "previous_close": round(float(prev_close), 2) if prev_close is not None else None,
+                    "day_change": round(float(change), 2) if change is not None else None,
+                    "day_change_pct": round(float(change_pct), 2) if change_pct is not None else None,
+                    "pe_ratio": None,
+                    "fiftyTwoWeekLow": meta.get("fiftyTwoWeekLow"),
+                    "fiftyTwoWeekHigh": meta.get("fiftyTwoWeekHigh"),
+                    "market_time": meta.get("regularMarketTime"),
+                    "source": "Yahoo Finance",
+                }
+                CACHE[ticker] = {"cached_at": now, "data": data}
+                return data
+    except Exception:
+        pass
+
+    # 2. Fallback to NSE (works when the host IP isn't blocked, e.g. running locally
+    # from a residential connection). Adds PE ratio and the NSE 52-week band when available.
+    symbol = ticker.split('.')[0]  # Remove .NS/.BO
     try:
         if not NSE_SESSION.cookies:
             NSE_SESSION.get("https://www.nseindia.com", timeout=5)
-        
+
         url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
         r = NSE_SESSION.get(url, timeout=5)
         if r.status_code == 200:
@@ -83,7 +121,7 @@ def fetch_quote(ticker: str, force: bool = False) -> Optional[Dict[str, Any]]:
                 pe_ratio = meta.get("pdSymbolPe")
                 if pe_ratio == "NA":
                     pe_ratio = None
-                
+
                 week_high_low = p_info.get("weekHighLow", {})
                 fiftyTwoWeekLow = week_high_low.get("min")
                 fiftyTwoWeekHigh = week_high_low.get("max")
@@ -105,42 +143,7 @@ def fetch_quote(ticker: str, force: bool = False) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
-    # 2. Fallback to Yahoo v8
-    url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
-    try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=6)
-        response.raise_for_status()
-        result = response.json().get("chart", {}).get("result", [])
-        if not result:
-            return None
-        meta = result[0].get("meta", {})
-        price = meta.get("regularMarketPrice")
-        if price is None:
-            return None
-            
-        prev_close = meta.get("chartPreviousClose")
-        change = None
-        change_pct = None
-        if price is not None and prev_close is not None:
-            change = price - prev_close
-            if prev_close != 0:
-                change_pct = (change / prev_close) * 100
-
-        data = {
-            "price": round(float(price), 2),
-            "previous_close": round(float(prev_close), 2) if prev_close is not None else None,
-            "day_change": round(float(change), 2) if change is not None else None,
-            "day_change_pct": round(float(change_pct), 2) if change_pct is not None else None,
-            "pe_ratio": None,
-            "fiftyTwoWeekLow": meta.get("fiftyTwoWeekLow"),
-            "fiftyTwoWeekHigh": meta.get("fiftyTwoWeekHigh"),
-            "market_time": meta.get("regularMarketTime"),
-            "source": "Yahoo Finance (Fallback)",
-        }
-        CACHE[ticker] = {"cached_at": now, "data": data}
-        return data
-    except Exception:
-        return None
+    return None
 
 def fetch_dividend_history(ticker: str, force: bool = False) -> Dict[str, Any]:
     if not ticker:
@@ -181,6 +184,70 @@ def fetch_dividend_history(ticker: str, force: bool = False) -> Dict[str, Any]:
         return result
     except Exception:
         return {}
+
+
+BUY_ZONE_CACHE: Dict[str, Dict[str, Any]] = {}
+BUY_ZONE_TTL_SECONDS = 3600  # Buy zone bounds refresh at most once per hour.
+
+def compute_buy_zone(
+    ticker: str,
+    asset_type: str,
+    ttm_income: float,
+    fifty_two_week_low: Optional[float],
+    fifty_two_week_high: Optional[float],
+    seed_buy_zone: str,
+) -> Optional[Dict[str, float]]:
+    """Return {"low", "high", "label"} for the current buy-zone band.
+
+    Recalculated from the latest 52-week range at most once per hour per ticker, so the
+    zone tracks the market instead of being frozen at whatever the seed report said, but
+    doesn't jitter on every ~60s price refresh. Falls back to a cached value (even if
+    stale) or the seed's researched range when live 52-week data isn't available.
+    """
+    now = time.time()
+    cached = BUY_ZONE_CACHE.get(ticker)
+    is_fresh = bool(cached and now - cached["cached_at"] < BUY_ZONE_TTL_SECONDS)
+
+    if fifty_two_week_low and fifty_two_week_high:
+        if is_fresh:
+            return cached["bounds"]
+
+        low = float(fifty_two_week_low)
+        high = float(fifty_two_week_high)
+        tech_target = low + (high - low) * 0.25
+        target_yield = 0.095 if asset_type in ("invit", "reit") else 0.05
+        if ttm_income and ttm_income > 0:
+            yield_target = ttm_income / target_yield
+            zone_high = (tech_target + yield_target) / 2
+        else:
+            zone_high = low + (high - low) * 0.30
+
+        if zone_high <= low:
+            # The yield-implied ceiling is at or below the 52-week low (typical for
+            # lower-yield blue chips) — a "low-high" range would be zero-width or
+            # inverted, so express it as a single buy-under ceiling instead.
+            bounds = {
+                "low": 0.0,
+                "high": round(low, 1),
+                "label": f"Under ₹{round(low, 1)}",
+            }
+        else:
+            bounds = {
+                "low": round(low, 1),
+                "high": round(zone_high, 1),
+                "label": f"₹{round(low, 1)}-{round(zone_high, 1)}",
+            }
+        BUY_ZONE_CACHE[ticker] = {"cached_at": now, "bounds": bounds}
+        return bounds
+
+    if is_fresh:
+        return cached["bounds"]
+
+    match = re.search(r'(?:Rs\.?|₹)?\s*([\d\.]+)\s*-\s*([\d\.]+)', seed_buy_zone) if seed_buy_zone else None
+    if match:
+        return {"low": float(match.group(1)), "high": float(match.group(2)), "label": seed_buy_zone}
+
+    return None
 
 
 def enrich_asset(asset: Dict[str, Any], live: bool = True, force: bool = False) -> Dict[str, Any]:
@@ -237,44 +304,20 @@ def enrich_asset(asset: Dict[str, Any], live: bool = True, force: bool = False) 
     out["monthly_yield_pct"] = round(annual_yield / 12, 2)
     out["clears_12pct"] = annual_yield >= 12
 
-    # Revert to the accurate researched Buy Zone from the report, OR calculate dynamic if missing
-    buy_zone_str = str(asset.get("buy_zone", ""))
-    out["is_in_buy_zone"] = False
-
-    # Only treat it as a "researched" zone if it actually matches a Low-High range.
-    # Predicted/Technical placeholders (e.g. "Predicted: Under ₹123.4") saved on a
-    # previously-added asset must NOT be reused as-is, otherwise the zone freezes
-    # forever instead of being recalculated from the latest 52-week range.
-    range_match = re.search(r'(?:Rs\.?|₹)?\s*([\d\.]+)\s*-\s*([\d\.]+)', buy_zone_str) if buy_zone_str else None
-
-    if range_match:
-        out["buy_zone"] = buy_zone_str
-        low = float(range_match.group(1))
-        high = float(range_match.group(2))
-        if price and low <= price <= high:
-            out["is_in_buy_zone"] = True
+    bounds = compute_buy_zone(
+        asset.get("ticker", ""),
+        str(out.get("type", "")).lower(),
+        ttm_income,
+        out.get("fiftyTwoWeekLow"),
+        out.get("fiftyTwoWeekHigh"),
+        str(asset.get("buy_zone", "")),
+    )
+    if bounds:
+        out["buy_zone"] = bounds["label"]
+        out["is_in_buy_zone"] = bool(price and bounds["low"] <= price <= bounds["high"])
     else:
-        # Predict buy zone for unresearched/searched assets
-        if out.get("fiftyTwoWeekLow") and out.get("fiftyTwoWeekHigh"):
-            low = out["fiftyTwoWeekLow"]
-            high = out["fiftyTwoWeekHigh"]
-            
-            if ttm_income > 0:
-                tech_target = low + (high - low) * 0.25
-                asset_type = str(out.get("type", "")).lower()
-                target_yield = 0.095 if asset_type in ["invit", "reit"] else 0.05
-                yield_target = ttm_income / target_yield
-                buy_zone_max = (tech_target + yield_target) / 2
-                out["buy_zone"] = f"Predicted: Under ₹{round(buy_zone_max, 1)}"
-            else:
-                # Fallback to technical-only buy zone
-                buy_zone_max = low + (high - low) * 0.30
-                out["buy_zone"] = f"Technical: Under ₹{round(buy_zone_max, 1)}"
-                
-            if price and price <= buy_zone_max:
-                out["is_in_buy_zone"] = True
-        else:
-            out["buy_zone"] = "N/A"
+        out["buy_zone"] = "N/A"
+        out["is_in_buy_zone"] = False
 
     return out
 
